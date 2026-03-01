@@ -1,0 +1,10 @@
+# Ignore node_modules, build outputs, and system files
+node_modules/
+dist/
+.env
+.DS_Store
+.gemini/
+.vscode/
+
+# Ignore the models source directory if it's too large, but for a web game we usually push them
+# Models/ 
