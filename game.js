@@ -2,6 +2,14 @@
  * PIRATE SEA DASH 3D — Feature Expansion v4
  * Bosses, Power-ups, 5-Lane Movement, Ship Upgrades.
  */
+console.log("LOG: Script started loading...");
+try {
+    const testImport = await import('./vendor/three.module.js');
+    console.log("LOG: three.module.js import test success");
+} catch (e) {
+    console.error("LOG: ESM Import test failed!", e);
+}
+
 import * as THREE from './vendor/three.module.js';
 import { GLTFLoader } from './vendor/GLTFLoader.js';
 
@@ -131,13 +139,20 @@ function updateClouds(dt) {
 /* ═══ MODEL CACHE ═══ */
 const texLoader = new THREE.TextureLoader();
 const loader = new GLTFLoader();
+console.log("LOG: Loaders initialized");
 const mdlC = {}; let mdlOk = false, shipGrp = null, shipOk = false;
 const CP = { rocks: [], ghost: [], chest: [], crate: [], fireball: [], enemy: [], barrel: [], tower: [], islandBase: [], islandFort: [], powerup: [], boss: [] };
 
 // Global Error Handler for easier debugging on itch.io
 window.addEventListener('error', (e) => {
-    if (oText) oText.textContent = "Error: " + e.message;
-    console.error("Global catch:", e);
+    const msg = `HUD ERROR: ${e.message} @ ${e.filename}:${e.lineno}`;
+    if (oText) oText.textContent = msg;
+    console.error(msg, e);
+});
+window.addEventListener('unhandledrejection', (e) => {
+    const msg = `HUD PROMISE ERROR: ${e.reason}`;
+    if (oText) oText.textContent = msg;
+    console.error(msg, e);
 });
 
 /* ═══ AUDIO ═══ */
