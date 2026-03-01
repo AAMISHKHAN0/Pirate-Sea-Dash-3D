@@ -1,0 +1,13 @@
+{
+  "name": "pirate-sea-dash-3d",
+  "version": "3.0.0",
+  "description": "Pirate Sea Dash 3D - Sail, shoot, collect treasure, and survive the cursed sea.",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
