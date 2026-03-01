@@ -10,7 +10,7 @@ const LANE_W = 4.0, LANES = [-LANE_W, 0, LANE_W], SHIP_Y = 0.15;
 const SHIP_LERP = 22, SPAWN_DIST = 90, DESPAWN_Z = 20;
 const MAX_HP = 3, LVL_SCORE = 150, POOL = 30, P_MAX = 400;
 const MAX_FIREBALLS = 5, FB_COOLDOWN = 1.0, FB_SPEED = 25, FB_LIFE = 4.0;
-const MDL = './Models/GLB format/';
+const MDL = './Models/GLB%20format/';
 const MILESTONES = [100, 250, 500, 750, 1000, 1500, 2000, 3000, 5000];
 const COMBO_TIERS = [[0, 1], [3, 2], [6, 3], [10, 5]];
 
@@ -120,7 +120,7 @@ function updateClouds(dt) {
 }
 
 /* ═══ MODEL LOADER ═══ */
-const loader = new GLTFLoader(); const mdlC = {}; let loadTotal = 15, loadDone = 0;
+const loader = new GLTFLoader(); const mdlC = {}; let loadTotal = 14, loadDone = 0;
 function updateLoadBar() { const p = Math.round(loadDone / loadTotal * 100); loadBarFill.style.width = p + '%'; loadPct.textContent = p + '%'; }
 function loadMdl(n) {
     if (mdlC[n]) return Promise.resolve(mdlC[n]);
