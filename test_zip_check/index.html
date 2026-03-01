@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="description" content="Pirate Sea Dash 3D — Sail, shoot, collect treasure, survive the cursed sea." />
+  <meta name="theme-color" content="#02111b" />
+  <title>Pirate Sea Dash 3D</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Pirata+One&family=Eagle+Lake&family=Montserrat:wght@400;600;700;800&display=swap"
+    rel="stylesheet">
+
+  <link rel="stylesheet" href="./style.css" />
+</head>
+
+<body>
+  <!-- ═══ LOADING SCREEN ═══ -->
+  <div id="loadScreen" class="load-screen">
+    <div class="load-inner">
+      <h1 class="load-title">⚓ Pirate Sea Dash 3D</h1>
+      <p class="load-sub">Preparing the seven seas...</p>
+      <div class="load-bar"><span id="loadBarFill" class="load-bar-fill"></span></div>
+      <span id="loadPct" class="load-pct">0%</span>
+    </div>
+  </div>
+
+  <main class="shell" id="shell">
+    <!-- ═══ TOP BAR ═══ -->
+    <header class="topbar">
+      <div class="brand">
+        <h1>Pirate Sea Dash 3D</h1>
+      </div>
+      <div class="topbar-actions">
+        <button id="pauseBtn" class="btn icon-btn" type="button" title="Pause">⏸</button>
+        <button id="fsBtn" class="btn icon-btn" type="button" title="Fullscreen">⛶</button>
+        <button id="muteBtn" class="btn icon-btn" type="button" title="Sound">🔊</button>
+      </div>
+    </header>
+
+    <!-- ═══ HUD ═══ -->
+    <section class="hud" aria-label="Game status">
+      <article class="hud-card">
+        <div class="hud-head"><span class="icon icon-score"></span><span>Score</span></div>
+        <div class="hud-value" id="scoreValue">0</div>
+        <div class="hud-sub">Best <span id="bestValue">0</span></div>
+      </article>
+      <article class="hud-card">
+        <div class="hud-head"><span class="icon icon-dist"></span><span>Distance</span></div>
+        <div class="hud-value" id="distValue">0m</div>
+        <div class="hud-sub">Best <span id="bestDist">0m</span></div>
+      </article>
+      <article class="hud-card">
+        <div class="hud-head"><span class="icon icon-health"></span><span>Hull</span><span class="hud-pill"
+            id="healthValue">3/3</span></div>
+        <div class="meter"><span id="healthBarFill"></span></div>
+      </article>
+      <article class="hud-card">
+        <div class="hud-head"><span class="icon icon-level"></span><span>Lvl <span id="levelValue">1</span></span><span
+            class="hud-pill" id="levelPercent">0%</span></div>
+        <div class="meter"><span id="levelBarFill"></span></div>
+      </article>
+    </section>
+
+    <!-- ═══ VIEWPORT ═══ -->
+    <section class="viewport-wrap" id="viewportWrap">
+      <canvas id="gameCanvas" width="1920" height="1080" aria-label="3D game viewport"></canvas>
+      <div class="crosshair" aria-hidden="true"></div>
+      <div id="scorePopLayer" class="score-pop-layer" aria-hidden="true"></div>
+      <div id="damageFlash" class="damage-flash" aria-hidden="true"></div>
+      <div id="levelToast" class="level-toast" aria-live="polite"></div>
+      <div id="distMilestone" class="dist-milestone" aria-live="polite"></div>
+      <div id="stageToast" class="stage-toast" aria-live="assertive"></div>
+
+      <!-- Boss Health Bar -->
+      <div id="bossBarWrap" class="boss-bar-wrap">
+        <div class="boss-bar-header">
+          <span id="bossBarName">Cursed Galleon</span>
+          <span class="boss-icon">💀</span>
+        </div>
+        <div class="boss-bar-container">
+          <div id="bossBarFill" class="boss-bar-fill"></div>
+        </div>
+      </div>
+
+      <!-- Power-up Indicator -->
+      <div id="pwIndicator" class="pw-indicator">
+        <div class="pw-content">
+          <div id="pwIcon" class="pw-icon">⭐</div>
+          <div class="pw-info">
+            <div id="pwName" class="pw-name">Power-up</div>
+            <div class="pw-timer-container">
+              <div id="pwTimerBar" class="pw-timer-bar"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="vignette-overlay" aria-hidden="true"></div>
+
+      <!-- Cooldown indicator -->
+      <div id="cooldownRing" class="cooldown-ring" aria-hidden="true">
+        <svg viewBox="0 0 36 36" class="cooldown-svg">
+          <circle cx="18" cy="18" r="15.5" class="cooldown-track" />
+          <circle id="cooldownArc" cx="18" cy="18" r="15.5" class="cooldown-arc" />
+        </svg>
+        <span class="cooldown-icon">🔥</span>
+      </div>
+
+      <!-- Combo badge -->
+      <div id="comboBadge" class="combo-badge" aria-live="polite">
+        <span class="combo-label">COMBO</span>
+        <span id="comboValue" class="combo-value">x1</span>
+      </div>
+
+      <!-- Start / Death overlay -->
+      <div id="overlay" class="overlay show">
+        <div class="panel">
+          <h2 id="overlayTitle">⚓ Pirate Sea Dash 3D</h2>
+          <p id="overlayText">Loading assets...</p>
+          <div id="finalScore" class="final-score"></div>
+          <button id="startBtn" class="btn btn-primary" type="button">Start Voyage</button>
+        </div>
+      </div>
+
+      <!-- Pause overlay -->
+      <div id="pauseOverlay" class="overlay">
+        <div class="panel">
+          <h2>⏸ Paused</h2>
+          <div class="pause-menu">
+            <button id="resumeBtn" class="btn btn-primary" type="button">▶ Resume</button>
+            <button id="restartBtn" class="btn btn-secondary" type="button">↻ Restart</button>
+            <div class="settings-row">
+              <span>Sound</span>
+              <button id="muteBtn2" class="btn btn-sm" type="button">🔊 On</button>
+            </div>
+            <div class="settings-row">
+              <span>Quality</span>
+              <button id="qualityBtn" class="btn btn-sm" type="button">High</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ TOUCH CONTROLS ═══ -->
+    <section class="touch-controls" id="touchControls" aria-label="Mobile controls">
+      <button id="touchLeftBtn" data-dir="left" type="button">◀</button>
+      <button id="touchRightBtn" data-dir="right" type="button">▶</button>
+      <button id="fireBtn" class="fire-btn" type="button">🔥</button>
+    </section>
+
+    <footer class="footnote">
+      <span>Assets: Kenney Pirate Kit</span>
+      <span>WASD / Arrows + Space</span>
+      <span>v3.0.0</span>
+    </footer>
+  </main>
+
+  <script type="module" src="./game.js"></script>
+</body>
+
+</html>

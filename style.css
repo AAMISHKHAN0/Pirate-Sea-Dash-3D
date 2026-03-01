@@ -120,11 +120,13 @@ body {
 .load-bar-fill {
   display: block;
   height: 100%;
-  width: 0;
+  width: 100%;
   border-radius: 99px;
   background: linear-gradient(90deg, var(--accent-2), var(--accent), #ffb733);
   box-shadow: 0 0 12px rgba(242, 202, 122, .5);
-  transition: width .2s ease
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform .2s ease
 }
 
 .load-pct {

@@ -132,21 +132,9 @@ function updateClouds(dt) {
     for (const c of clouds) { c.position.x += c.userData.spd * dt; if (c.position.x > 140) c.position.x = -140; }
 }
 
-/* ═══ MODEL LOADER ═══ */
-const loader = new GLTFLoader(); const mdlC = {}; let loadTotal = 14, loadDone = 0;
-function updateLoadBar() { const p = Math.round(loadDone / loadTotal * 100); loadBarFill.style.width = p + '%'; loadPct.textContent = p + '%'; }
-function loadMdl(n) {
-    if (mdlC[n]) return Promise.resolve(mdlC[n]);
-    return new Promise(res => {
-        loader.load(MDL + n, g => {
-            g.scene.traverse(c => { if (c.isMesh) { c.castShadow = false; c.receiveShadow = false; } });
-            mdlC[n] = g.scene; loadDone++; updateLoadBar(); res(g.scene);
-        }, undefined, () => {
-            const fb = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshPhongMaterial({ color: 0x886644 }));
-            mdlC[n] = fb; loadDone++; updateLoadBar(); res(fb);
-        });
-    });
-}
+/* ═══ MODEL CACHE ═══ */
+const mdlC = {}; let mdlOk = false, shipGrp = null, shipOk = false;
+const CP = { rocks: [], ghost: [], chest: [], crate: [], fireball: [], enemy: [], barrel: [], tower: [], islandBase: [], islandFort: [], powerup: [], boss: [] };
 
 /* ═══ AUDIO ═══ */
 const Aud = (() => {
@@ -227,8 +215,8 @@ const st = {
 const obs = [], tres = [], fireballs = [], enemies = [], islands = [], bgIslands = [], powerups = [], bosses = [];
 function resetPools() { [obs, tres, fireballs, enemies, powerups, bosses].forEach(p => { p.forEach(o => { if (o.mesh) o.mesh.visible = false; if (o.group) o.group.visible = false; }); p.length = 0; }); islands.forEach(i => i.group.visible = false); islands.length = 0; }
 
-let shipGrp = null, shipOk = false, mdlOk = false;
-const CP = { rocks: [], ghost: [], chest: [], crate: [], fireball: [], enemy: [], barrel: [], tower: [], islandBase: [], islandFort: [], powerup: [], boss: [] };
+// Object pooling logic 
+
 
 function createFireballPool() {
     for (let i = 0; i < MAX_FIREBALLS; i++) {
@@ -304,33 +292,38 @@ function createBgIslands() {
 /* ═══ LOAD ALL ═══ */
 async function loadAll() {
     try {
-        const loader = new GLTFLoader(); let loaded = 0;
         const assets = [
             'ship-pirate-large.glb', 'rocks-a.glb', 'ship-ghost.glb', 'chest.glb',
             'crate.glb', 'barrel.glb', 'cannon-mobile.glb', 'palm-straight.glb',
             'castle-wall.glb', 'island223.glb', 'bottle.glb', 'ship-large.glb'
         ];
-        const total = assets.length + 1; // +1 for sky texture
-        const progress = () => { loaded++; loadBarFill.style.transform = `scaleX(${loaded / total})`; loadPct.textContent = `${Math.round(loaded / total * 100)}%`; };
+        const total = assets.length + 1; let loaded = 0;
+        const progress = (name) => {
+            loaded++;
+            const ratio = loaded / total;
+            loadBarFill.style.transform = `scaleX(${ratio})`;
+            loadPct.textContent = `${Math.round(ratio * 100)}%`;
+            if (name) oText.textContent = `Loading ${name}...`;
+        };
 
         // 1. Load Sky Texture first (fast)
         const skyPromise = new Promise(res => {
-            texLoader.load('./assets/sky_bg.jpg', t => { progress(); res(t); }, undefined, err => {
-                console.warn('Sky texture failed, using solid color:', err);
-                progress(); res(null);
+            texLoader.load('./assets/sky_bg.jpg', t => { progress('sky'); res(t); }, undefined, err => {
+                console.warn('Sky texture failed:', err);
+                progress('sky (fallback)'); res(null);
             });
         });
 
         // 2. Load GLB Models in parallel
         const modelPromises = assets.map(file =>
             loader.loadAsync(MDL + file).then(g => {
-                progress();
+                progress(file);
                 g.scene.traverse(c => { if (c.isMesh) { c.castShadow = false; c.receiveShadow = false; c.frustumCulled = true; } });
                 return g.scene;
             }).catch(err => {
-                console.warn(`Failed to load ${file}:`, err);
-                progress();
-                return new THREE.Group(); // Empty group as fallback
+                console.warn(`Failed ${file}:`, err);
+                progress(file + ' (error)');
+                return new THREE.Group();
             })
         );
 
