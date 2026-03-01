@@ -11,7 +11,7 @@ const CENTER_LANE = 2;
 const SHIP_LERP = 22, SPAWN_DIST = 90, DESPAWN_Z = 20;
 const MAX_HP = 3, LVL_SCORE = 150, POOL = 30, P_MAX = 400;
 const MAX_FIREBALLS = 5, FB_COOLDOWN = 1.0, FB_SPEED = 25, FB_LIFE = 4.0;
-const MDL = './Models/GLB format/';
+const MDL = './models/glb/';
 const MILESTONES = [100, 250, 500, 750, 1000, 1500, 2000, 3000, 5000];
 const COMBO_TIERS = [[0, 1], [3, 2], [6, 3], [10, 5]];
 
@@ -315,17 +315,20 @@ async function loadAll() {
 
         // 1. Load Sky Texture first (fast)
         const skyPromise = new Promise(res => {
-            texLoader.load('./assets/sky_bg.jpg', t => { progress(); res(t); });
+            texLoader.load('./assets/sky_bg.jpg', t => { progress(); res(t); }, undefined, err => {
+                console.warn('Sky texture failed, using solid color:', err);
+                progress(); res(null);
+            });
         });
 
         // 2. Load GLB Models in parallel
         const modelPromises = assets.map(file =>
             loader.loadAsync(MDL + file).then(g => {
                 progress();
-                g.scene.traverse(c => { if (c.isMesh) { c.castShadow = false; c.receiveShadow = false; } });
+                g.scene.traverse(c => { if (c.isMesh) { c.castShadow = false; c.receiveShadow = false; c.frustumCulled = true; } });
                 return g.scene;
             }).catch(err => {
-                console.warn(`Failed to load ${file}, using placeholder:`, err);
+                console.warn(`Failed to load ${file}:`, err);
                 progress();
                 return new THREE.Group(); // Empty group as fallback
             })
