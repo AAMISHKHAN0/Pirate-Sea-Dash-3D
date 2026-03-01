@@ -110,12 +110,8 @@ const water = new THREE.Mesh(wGeo, wMat); water.rotation.x = -Math.PI / 2; water
 const wOrig = wGeo.attributes.position.array.slice();
 
 /* ═══ SKY & CLOUDS ═══ */
-const texLoader = new THREE.TextureLoader();
-const skyTex = texLoader.load('./assets/sky_bg.jpg');
-skyTex.mapping = THREE.EquirectangularReflectionMapping;
-const skyMat = new THREE.MeshBasicMaterial({
-    map: skyTex, side: THREE.BackSide, fog: true, opacity: 1.0, transparent: true
-});
+let skyTex = null;
+const skyMat = new THREE.MeshBasicMaterial({ side: THREE.BackSide, fog: true, opacity: 1.0, transparent: true });
 const skySphere = new THREE.Mesh(new THREE.SphereGeometry(200, 32, 24), skyMat);
 scene.add(skySphere);
 
@@ -133,8 +129,16 @@ function updateClouds(dt) {
 }
 
 /* ═══ MODEL CACHE ═══ */
+const texLoader = new THREE.TextureLoader();
+const loader = new GLTFLoader();
 const mdlC = {}; let mdlOk = false, shipGrp = null, shipOk = false;
 const CP = { rocks: [], ghost: [], chest: [], crate: [], fireball: [], enemy: [], barrel: [], tower: [], islandBase: [], islandFort: [], powerup: [], boss: [] };
+
+// Global Error Handler for easier debugging on itch.io
+window.addEventListener('error', (e) => {
+    if (oText) oText.textContent = "Error: " + e.message;
+    console.error("Global catch:", e);
+});
 
 /* ═══ AUDIO ═══ */
 const Aud = (() => {
@@ -291,13 +295,24 @@ function createBgIslands() {
 
 /* ═══ LOAD ALL ═══ */
 async function loadAll() {
+    let loaded = 0, total = 13;
+    const failsafe = setTimeout(() => {
+        if (loaded < total) {
+            console.warn("Loading timeout hit, forcing readiness.");
+            oText.textContent = "Loading is taking a while... you can try starting anyway!";
+            mdlOk = true;
+            startBtn.disabled = false;
+            loadScreen.classList.add('done');
+        }
+    }, 8000);
+
     try {
         const assets = [
             'ship-pirate-large.glb', 'rocks-a.glb', 'ship-ghost.glb', 'chest.glb',
             'crate.glb', 'barrel.glb', 'cannon-mobile.glb', 'palm-straight.glb',
             'castle-wall.glb', 'island223.glb', 'bottle.glb', 'ship-large.glb'
         ];
-        const total = assets.length + 1; let loaded = 0;
+        total = assets.length + 1;
         const progress = (name) => {
             loaded++;
             const ratio = loaded / total;
@@ -328,6 +343,10 @@ async function loadAll() {
         );
 
         const [sky, ...msgs] = await Promise.all([skyPromise, ...modelPromises]);
+        if (sky) {
+            sky.mapping = THREE.EquirectangularReflectionMapping;
+            skyMat.map = sky; skyMat.needsUpdate = true;
+        }
         const [ship, rock, ghost, chest, crate, barrel, tower, palm, wall, island, bottle, shipLarge] = msgs;
 
         shipGrp = ship; shipGrp.scale.set(.9, .9, .9); scene.add(shipGrp); shipOk = true;
@@ -345,6 +364,7 @@ async function loadAll() {
         buildIslands(palm, [rock, ghost, rock], barrel, wall, island);
         createBgIslands();
 
+        clearTimeout(failsafe);
         mdlOk = true;
         oText.textContent = 'Ready for Voyage!';
         updateHUD();
