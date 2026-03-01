@@ -1,18 +1,26 @@
 ﻿/**
- * PIRATE SEA DASH 3D — Feature Expansion
- * Seasons, Weather, Island 223 (Fortified Islands), Towers, Barrels.
+ * PIRATE SEA DASH 3D — Feature Expansion v4
+ * Bosses, Power-ups, 5-Lane Movement, Ship Upgrades.
  */
 import * as THREE from './vendor/three.module.js';
 import { GLTFLoader } from './vendor/GLTFLoader.js';
 
 /* ═══ CONSTANTS ═══ */
-const LANE_W = 4.0, LANES = [-LANE_W, 0, LANE_W], SHIP_Y = 0.15;
+const LANE_W = 3.5, LANES = [-LANE_W * 2, -LANE_W, 0, LANE_W, LANE_W * 2], SHIP_Y = 0.15;
+const CENTER_LANE = 2;
 const SHIP_LERP = 22, SPAWN_DIST = 90, DESPAWN_Z = 20;
 const MAX_HP = 3, LVL_SCORE = 150, POOL = 30, P_MAX = 400;
 const MAX_FIREBALLS = 5, FB_COOLDOWN = 1.0, FB_SPEED = 25, FB_LIFE = 4.0;
-const MDL = './Models/GLB%20format/';
+const MDL = './Models/GLB format/';
 const MILESTONES = [100, 250, 500, 750, 1000, 1500, 2000, 3000, 5000];
 const COMBO_TIERS = [[0, 1], [3, 2], [6, 3], [10, 5]];
+
+/* ═══ POWER-UP TYPES ═══ */
+const PW_RAPID = 0, PW_SHIELD = 1, PW_MAGNET = 2, PW_GIANT = 3;
+const PW_NAMES = ['⚡ Rapid Fire', '🛡️ Shield', '🧲 Magnet', '🚀 Giant Ship'];
+const PW_COLORS = [0xff4444, 0x4488ff, 0xffdd00, 0x44ff66];
+const PW_DURATIONS = [8, 10, 8, 10];
+const BOSS_DIST_INTERVAL = 500;
 
 /* ═══ STAGES & WEATHER ═══ */
 const STAGES = [
@@ -40,8 +48,13 @@ const resumeBtn = $('resumeBtn'), restartBtn = $('restartBtn');
 const fsBtn = $('fsBtn'), qualityBtn = $('qualityBtn');
 const cooldownRing = $('cooldownRing'), cooldownArc = $('cooldownArc');
 const comboBadge = $('comboBadge'), comboValue = $('comboValue');
+const bossBarWrap = $('bossBarWrap'), bossBarFill = $('bossBarFill'), bossBarName = $('bossBarName');
+const pwIndicator = $('pwIndicator'), pwIcon = $('pwIcon'), pwName = $('pwName'), pwTimerBar = $('pwTimerBar');
 const lossSfx = new Audio('./soundeffects/fahhhhhhhhhhhhhhh.mp3');
 lossSfx.preload = 'auto';
+const bgMusic = new Audio('./soundeffects/alec_koff-pirate-484612.mp3');
+bgMusic.loop = true;
+bgMusic.preload = 'auto';
 
 /* ═══ QUALITY ═══ */
 let qualityLevel = 2;
@@ -98,7 +111,7 @@ const wOrig = wGeo.attributes.position.array.slice();
 
 /* ═══ SKY & CLOUDS ═══ */
 const texLoader = new THREE.TextureLoader();
-const skyTex = texLoader.load('./sky_bg.jpg');
+const skyTex = texLoader.load('./assets/sky_bg.jpg');
 skyTex.mapping = THREE.EquirectangularReflectionMapping;
 const skyMat = new THREE.MeshBasicMaterial({
     map: skyTex, side: THREE.BackSide, fog: true, opacity: 1.0, transparent: true
@@ -163,8 +176,10 @@ const Aud = (() => {
     let ambN = null, ambG = null;
     function startAmb() { if (!ctx || ambN) return; const bs = ctx.sampleRate * 4, buf = ctx.createBuffer(1, bs, ctx.sampleRate), d = buf.getChannelData(0); for (let i = 0; i < bs; i++) d[i] = Math.random() * 2 - 1; ambN = ctx.createBufferSource(); ambN.buffer = buf; ambN.loop = true; const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 200; f.Q.value = .4; ambG = ctx.createGain(); ambG.gain.value = muted ? 0 : .08; ambG.connect(mg); ambN.connect(f); f.connect(ambG); ambN.start(); }
     function stopAmb() { if (ambN) { try { ambN.stop(); } catch (e) { } ambN = null; ambG = null; } }
-    function setMute(m) { muted = m; if (mg) mg.gain.value = m ? 0 : 1; }
-    return { init, play, startAmb, stopAmb, setMute, isMuted: () => muted };
+    function startMusic() { if (muted) return; bgMusic.play().catch(() => { }); }
+    function stopMusic() { bgMusic.pause(); }
+    function setMute(m) { muted = m; if (mg) mg.gain.value = m ? 0 : 1; if (m) bgMusic.pause(); else if (st.running && !st.paused) bgMusic.play().catch(() => { }); }
+    return { init, play, startAmb, stopAmb, startMusic, stopMusic, setMute, isMuted: () => muted };
 })();
 function playLossSfx() { if (Aud.isMuted()) return; try { lossSfx.pause(); lossSfx.currentTime = 0; lossSfx.play().catch(() => { }); } catch (e) { } }
 
@@ -197,15 +212,23 @@ const st = {
     curFog: new THREE.Color(STAGES[0].fog),
     curFogDens: STAGES[0].fogDens,
     curSun: STAGES[0].sun,
-    curHemi: STAGES[0].hemi
+    curHemi: STAGES[0].hemi,
+
+    // Power-ups
+    pwType: -1, pwTimer: 0, pwMaxTimer: 0,
+    shieldActive: false, magnetActive: false, rapidActive: false,
+    shipScale: 1, tgtShipScale: 1,
+
+    // Boss
+    bossActive: false, nextBossDist: BOSS_DIST_INTERVAL, bossesKilled: 0
 };
 
 /* ═══ POOLS ═══ */
-const obs = [], tres = [], fireballs = [], enemies = [], islands = [], bgIslands = [];
-function resetPools() { [obs, tres, fireballs, enemies].forEach(p => { p.forEach(o => { if (o.mesh) o.mesh.visible = false }); p.length = 0; }); islands.forEach(i => i.group.visible = false); islands.length = 0; }
+const obs = [], tres = [], fireballs = [], enemies = [], islands = [], bgIslands = [], powerups = [], bosses = [];
+function resetPools() { [obs, tres, fireballs, enemies, powerups, bosses].forEach(p => { p.forEach(o => { if (o.mesh) o.mesh.visible = false; if (o.group) o.group.visible = false; }); p.length = 0; }); islands.forEach(i => i.group.visible = false); islands.length = 0; }
 
 let shipGrp = null, shipOk = false, mdlOk = false;
-const CP = { rocks: [], ghost: [], chest: [], crate: [], fireball: [], enemy: [], barrel: [], tower: [], islandBase: [], islandFort: [] };
+const CP = { rocks: [], ghost: [], chest: [], crate: [], fireball: [], enemy: [], barrel: [], tower: [], islandBase: [], islandFort: [], powerup: [], boss: [] };
 
 function createFireballPool() {
     for (let i = 0; i < MAX_FIREBALLS; i++) {
@@ -215,6 +238,26 @@ function createFireballPool() {
         const light = new THREE.PointLight(0xff6622, .6, 8);
         g.add(core, glow, light); g.visible = false; scene.add(g);
         CP.fireball.push(g);
+    }
+}
+
+function createPowerupPool() {
+    for (let i = 0; i < 8; i++) {
+        const g = new THREE.Group();
+        const core = new THREE.Mesh(new THREE.SphereGeometry(.35, 10, 8), new THREE.MeshPhongMaterial({ color: 0xffd700, emissive: 0x886600, shininess: 100 }));
+        const glow = new THREE.Mesh(new THREE.SphereGeometry(.6, 10, 8), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: .2 }));
+        const light = new THREE.PointLight(0xffffff, .5, 10);
+        g.add(core, glow, light); g.visible = false; g.userData.coreMat = core.material; g.userData.glowMat = glow.material; g.userData.light = light;
+        scene.add(g); CP.powerup.push(g);
+    }
+}
+
+function createBossPool(bossModel) {
+    for (let i = 0; i < 3; i++) {
+        const g = new THREE.Group();
+        const m = bossModel.clone(); m.scale.set(1.0, 1.0, 1.0); m.rotation.y = 0;
+        m.traverse(c => { if (c.isMesh) { c.material = c.material.clone(); c.material.color.set(0xcc3333); c.material.emissive = new THREE.Color(0x440000); } });
+        g.add(m); g.visible = false; scene.add(g); CP.boss.push(g);
     }
 }
 
@@ -261,22 +304,58 @@ function createBgIslands() {
 /* ═══ LOAD ALL ═══ */
 async function loadAll() {
     try {
-        const [ship, rA, rB, rC, ghost, chest, crate, ball, enemy, palm, palmB, barrel, twr, wl] = await Promise.all([
-            loadMdl('ship-pirate-large.glb'), loadMdl('rocks-a.glb'), loadMdl('rocks-b.glb'), loadMdl('rocks-c.glb'),
-            loadMdl('ship-ghost.glb'), loadMdl('chest.glb'), loadMdl('crate.glb'), loadMdl('cannon-ball.glb'),
-            loadMdl('ship-large.glb'), loadMdl('palm-bend.glb'), loadMdl('palm-detailed-bend.glb'), loadMdl('barrel.glb'),
-            loadMdl('tower-watch.glb'), loadMdl('castle-wall.glb')]);
-        shipGrp = new THREE.Group(); const s = ship.clone(); s.scale.set(.6, .6, .6); s.rotation.y = Math.PI; shipGrp.add(s); shipGrp.position.set(0, SHIP_Y, 0); scene.add(shipGrp); shipOk = true;
-        const rks = [rA, rB, rC]; for (let i = 0; i < POOL; i++) { const m = rks[i % 3].clone(); m.scale.set(.7, .7, .7); m.visible = false; scene.add(m); CP.rocks.push(m); }
-        for (let i = 0; i < 8; i++) { const m = ghost.clone(); m.scale.set(.5, .5, .5); m.rotation.y = Math.PI; m.visible = false; scene.add(m); CP.ghost.push(m); }
-        for (let i = 0; i < 12; i++) { const m = chest.clone(); m.scale.set(.8, .8, .8); m.visible = false; scene.add(m); CP.chest.push(m); }
-        for (let i = 0; i < 12; i++) { const m = crate.clone(); m.scale.set(.7, .7, .7); m.visible = false; scene.add(m); CP.crate.push(m); }
-        for (let i = 0; i < 8; i++) { const m = enemy.clone(); m.scale.set(.45, .45, .45); m.rotation.y = Math.PI; m.visible = false; scene.add(m); CP.enemy.push(m); }
-        for (let i = 0; i < 12; i++) { const m = barrel.clone(); m.scale.set(.5, .5, .5); m.visible = false; scene.add(m); CP.barrel.push(m); }
-        for (let i = 0; i < 6; i++) { const m = twr.clone(); m.scale.set(.7, .7, .7); m.visible = false; scene.add(m); CP.tower.push(m); }
-        createFireballPool();
-        buildIslands(palmB, rks, barrel, wl, twr); createBgIslands(); mdlOk = true;
-    } catch (e) { console.error('Load:', e); }
+        const loader = new GLTFLoader(); let loaded = 0;
+        const assets = [
+            'ship-pirate-large.glb', 'rocks-a.glb', 'ship-ghost.glb', 'chest.glb',
+            'crate.glb', 'barrel.glb', 'cannon-mobile.glb', 'palm-straight.glb',
+            'castle-wall.glb', 'island223.glb', 'bottle.glb', 'ship-large.glb'
+        ];
+        const total = assets.length + 1; // +1 for sky texture
+        const progress = () => { loaded++; loadBarFill.style.transform = `scaleX(${loaded / total})`; loadPct.textContent = `${Math.round(loaded / total * 100)}%`; };
+
+        // 1. Load Sky Texture first (fast)
+        const skyPromise = new Promise(res => {
+            texLoader.load('./assets/sky_bg.jpg', t => { progress(); res(t); });
+        });
+
+        // 2. Load GLB Models in parallel
+        const modelPromises = assets.map(file =>
+            loader.loadAsync(MDL + file).then(g => {
+                progress();
+                g.scene.traverse(c => { if (c.isMesh) { c.castShadow = false; c.receiveShadow = false; } });
+                return g.scene;
+            }).catch(err => {
+                console.warn(`Failed to load ${file}, using placeholder:`, err);
+                progress();
+                return new THREE.Group(); // Empty group as fallback
+            })
+        );
+
+        const [sky, ...msgs] = await Promise.all([skyPromise, ...modelPromises]);
+        const [ship, rock, ghost, chest, crate, barrel, tower, palm, wall, island, bottle, shipLarge] = msgs;
+
+        shipGrp = ship; shipGrp.scale.set(.9, .9, .9); scene.add(shipGrp); shipOk = true;
+
+        // Populate pools
+        for (let i = 0; i < POOL; i++) {
+            CP.rocks.push(rock.clone()); CP.ghost.push(ghost.clone());
+            CP.chest.push(chest.clone()); CP.crate.push(crate.clone());
+        }
+        for (let i = 0; i < 15; i++) {
+            CP.barrel.push(barrel.clone()); CP.tower.push(tower.clone());
+        }
+
+        createFireballPool(); createPowerupPool(); createBossPool(shipLarge);
+        buildIslands(palm, [rock, ghost, rock], barrel, wall, island);
+        createBgIslands();
+
+        mdlOk = true;
+        oText.textContent = 'Ready for Voyage!';
+        updateHUD();
+    } catch (err) {
+        console.error('loadAll Error:', err);
+        oText.textContent = 'Error loading assets. Please refresh.';
+    }
 }
 
 /* ═══ STAGE TRANSITION ═══ */
@@ -318,7 +397,7 @@ function setStage(idx) {
 /* ═══ SPAWNING ═══ */
 function gf(p) { return p.find(m => !m.visible) || null; }
 function spawnObs() {
-    const l = Math.floor(Math.random() * 3), x = LANES[l], z = -SPAWN_DIST;
+    const l = Math.floor(Math.random() * LANES.length), x = LANES[l], z = -SPAWN_DIST;
     let p, type, r, yOff = -.1;
     const rnd = Math.random();
 
@@ -332,13 +411,37 @@ function spawnObs() {
     if (type === 'rock' || type === 'barrel') m.rotation.y = Math.random() * Math.PI * 2;
     obs.push({ mesh: m, lane: l, type, r });
 }
-function spawnTre() { const l = Math.floor(Math.random() * 3), x = LANES[l], z = -SPAWN_DIST - 5; const iC = Math.random() < .4; const m = gf(iC ? CP.chest : CP.crate); if (!m) return; m.position.set(x, .2, z); m.visible = true; tres.push({ mesh: m, lane: l, r: .9, pts: iC ? 30 : 10 }); }
-function spawnEnemy() { if (st.level < 3) return; const m = gf(CP.enemy); if (!m) return; const l = Math.floor(Math.random() * 3); m.position.set(LANES[l], .1, -SPAWN_DIST - 10); m.visible = true; const hp = Math.min(5, 2 + Math.floor((st.level - 3) / 3)); enemies.push({ mesh: m, lane: l, r: 1.3, hp, maxHp: hp }); }
+function spawnTre() { const l = Math.floor(Math.random() * LANES.length), x = LANES[l], z = -SPAWN_DIST - 5; const iC = Math.random() < .4; const m = gf(iC ? CP.chest : CP.crate); if (!m) return; m.position.set(x, .2, z); m.visible = true; tres.push({ mesh: m, lane: l, r: .9, pts: iC ? 30 : 10 }); }
+function spawnEnemy() { if (st.level < 3) return; const m = gf(CP.enemy); if (!m) return; const l = Math.floor(Math.random() * LANES.length); m.position.set(LANES[l], .1, -SPAWN_DIST - 10); m.visible = true; const hp = Math.min(5, 2 + Math.floor((st.level - 3) / 3)); enemies.push({ mesh: m, lane: l, r: 1.3, hp, maxHp: hp }); }
 function spawnIsland() {
     const p = (st.stageIdx >= 2 && Math.random() > 0.4) ? CP.islandFort : CP.islandBase;
     const g = p.find(i => !i.visible); if (!g) return;
-    const side = Math.random() > .5 ? 1 : -1; g.position.set(side * (9 + Math.random() * 14), -.2, -SPAWN_DIST - 15 - Math.random() * 20);
+    const side = Math.random() > .5 ? 1 : -1; g.position.set(side * (12 + Math.random() * 18), -.2, -SPAWN_DIST - 15 - Math.random() * 20);
     g.rotation.y = Math.random() * Math.PI * 2; const sc = .7 + Math.random() * .6; g.scale.set(sc, sc, sc); g.visible = true; islands.push({ group: g });
+}
+function spawnPowerup() {
+    const m = gf(CP.powerup); if (!m) return;
+    const type = Math.floor(Math.random() * 4);
+    const c = new THREE.Color(PW_COLORS[type]);
+    m.userData.coreMat.color.set(c); m.userData.coreMat.emissive.set(c).multiplyScalar(.4);
+    m.userData.glowMat.color.set(c); m.userData.light.color.set(c);
+    const l = Math.floor(Math.random() * LANES.length);
+    m.position.set(LANES[l], .8, -SPAWN_DIST - 8); m.visible = true;
+    powerups.push({ mesh: m, type, r: 1.0, bobOff: Math.random() * Math.PI * 2 });
+}
+function spawnBoss() {
+    if (st.bossActive) return;
+    const m = gf(CP.boss); if (!m) return;
+    const bossHp = Math.min(30, 10 + st.bossesKilled * 5);
+    m.position.set(0, .2, -SPAWN_DIST - 20); m.visible = true;
+    const sc = 1.2 + st.bossesKilled * 0.1; m.scale.set(sc, sc, sc);
+    bosses.push({ mesh: m, hp: bossHp, maxHp: bossHp, r: 2.5, moveT: 0, moveDir: 1 });
+    st.bossActive = true;
+    stageToast.textContent = '💀 BOSS INCOMING!';
+    stageToast.classList.remove('show'); void stageToast.offsetWidth; stageToast.classList.add('show');
+    Aud.play('wind'); shake(0.6, .5);
+    if (bossBarWrap) bossBarWrap.classList.add('visible');
+    if (bossBarName) bossBarName.textContent = `Cursed Galleon ${st.bossesKilled + 1}`;
 }
 
 /* ═══ SHOOTING ═══ */
@@ -347,22 +450,94 @@ function shoot() {
     if (fireballs.length >= MAX_FIREBALLS) return;
     const m = gf(CP.fireball); if (!m) return;
     m.position.set(st.shipX, 1.2, -1.5); m.visible = true;
-    st.shootCD = FB_COOLDOWN; fireballs.push({ mesh: m, speed: FB_SPEED, life: FB_LIFE });
+    st.shootCD = st.rapidActive ? FB_COOLDOWN * 0.4 : FB_COOLDOWN;
+    fireballs.push({ mesh: m, speed: FB_SPEED, life: FB_LIFE });
     Aud.play('cannon'); st.cannonFlashT = 0.15; cannonFlash.position.set(st.shipX, 1.5, -1); cannonFlash.intensity = 2;
-    PSys.emit(st.shipX, 1.2, -1.5, 8, 0xff8833, 1.5, .3, 2); PSys.emit(st.shipX, 1.2, -1.5, 4, 0xffcc44, 1, .2, 1.5);
+    const pX = st.shipX;
+    PSys.emit(pX, 1.2, -1.5, 8, 0xff8833, 1.5, .3, 2); PSys.emit(pX, 1.2, -1.5, 4, 0xffcc44, 1, .2, 1.5);
 }
 
 /* ═══ COLLISIONS ═══ */
 function checkCol() {
-    const sx = st.shipX, sr = .9;
-    for (let i = obs.length - 1; i >= 0; i--) { const o = obs[i]; if (!o.mesh.visible) continue; const dx = sx - o.mesh.position.x, dz = -o.mesh.position.z, d = Math.sqrt(dx * dx + dz * dz); if (d < sr + o.r && st.invT <= 0) { hitShip(); o.mesh.visible = false; obs.splice(i, 1); PSys.emit(o.mesh.position.x, 1, o.mesh.position.z, 20, 0xff6633, 3, .7, 4); PSys.emit(o.mesh.position.x, .5, o.mesh.position.z, 12, 0xffaa44, 2, .5, 3); break; } }
-    for (let i = tres.length - 1; i >= 0; i--) { const t = tres[i]; if (!t.mesh.visible) continue; const dx = sx - t.mesh.position.x, dz = -t.mesh.position.z, d = Math.sqrt(dx * dx + dz * dz); if (d < sr + t.r) { collectTre(t); t.mesh.visible = false; tres.splice(i, 1); } }
-    for (let i = enemies.length - 1; i >= 0; i--) { const e = enemies[i]; if (!e.mesh.visible) continue; const dx = sx - e.mesh.position.x, dz = -e.mesh.position.z, d = Math.sqrt(dx * dx + dz * dz); if (d < sr + e.r && st.invT <= 0) { hitShip(); e.mesh.visible = false; enemies.splice(i, 1); PSys.emit(e.mesh.position.x, 1, e.mesh.position.z, 25, 0x88ffbb, 4, .8, 5); break; } }
+    const sx = st.shipX, sr = 0.9 * st.shipScale;
+    // Obstacles
+    for (let i = obs.length - 1; i >= 0; i--) {
+        const o = obs[i]; if (!o.mesh.visible) continue;
+        const dx = sx - o.mesh.position.x, dz = -o.mesh.position.z, d = Math.sqrt(dx * dx + dz * dz);
+        if (d < sr + o.r && st.invT <= 0) { hitShip(); o.mesh.visible = false; obs.splice(i, 1); PSys.emit(o.mesh.position.x, 1, o.mesh.position.z, 20, 0xff6633, 3, .7, 4); break; }
+    }
+    // Treasures (Magnet support)
+    for (let i = tres.length - 1; i >= 0; i--) {
+        const t = tres[i]; if (!t.mesh.visible) continue;
+        const dx = sx - t.mesh.position.x, dz = -t.mesh.position.z, d = Math.sqrt(dx * dx + dz * dz);
+        if (d < sr + t.r) { collectTre(t); t.mesh.visible = false; tres.splice(i, 1); }
+        else if (st.magnetActive && d < 8) {
+            const spd = 20 * (1 - d / 8);
+            t.mesh.position.x += (sx - t.mesh.position.x) * spd * 0.016;
+            t.mesh.position.z += (0 - t.mesh.position.z) * spd * 0.016;
+        }
+    }
+    // Enemies
+    for (let i = enemies.length - 1; i >= 0; i--) {
+        const e = enemies[i]; if (!e.mesh.visible) continue;
+        const dx = sx - e.mesh.position.x, dz = -e.mesh.position.z, d = Math.sqrt(dx * dx + dz * dz);
+        if (d < sr + e.r && st.invT <= 0) { hitShip(); e.mesh.visible = false; enemies.splice(i, 1); PSys.emit(e.mesh.position.x, 1, e.mesh.position.z, 25, 0x88ffbb, 4, .8, 5); break; }
+    }
+    // Power-ups
+    for (let i = powerups.length - 1; i >= 0; i--) {
+        const p = powerups[i]; if (!p.mesh.visible) continue;
+        const dx = sx - p.mesh.position.x, dz = -p.mesh.position.z, d = Math.sqrt(dx * dx + dz * dz);
+        if (d < sr + p.r) { applyPowerup(p.type); p.mesh.visible = false; powerups.splice(i, 1); }
+    }
+    // Bosses
+    for (let i = bosses.length - 1; i >= 0; i--) {
+        const b = bosses[i]; if (!b.mesh.visible) continue;
+        const dx = sx - b.mesh.position.x, dz = -b.mesh.position.z, d = Math.sqrt(dx * dx + dz * dz);
+        if (d < sr + b.r && st.invT <= 0) { hitShip(); PSys.emit(sx, 1, 0, 15, 0x88ffbb, 3, .6, 4); break; }
+    }
+
+    // Fireballs
     for (let ci = fireballs.length - 1; ci >= 0; ci--) {
         const cb = fireballs[ci]; if (!cb.mesh.visible) continue;
-        for (let oi = obs.length - 1; oi >= 0; oi--) { const o = obs[oi]; if (!o.mesh.visible) continue; const dx = cb.mesh.position.x - o.mesh.position.x, dz = cb.mesh.position.z - o.mesh.position.z; if (Math.sqrt(dx * dx + dz * dz) < 1.4) { o.mesh.visible = false; obs.splice(oi, 1); cb.mesh.visible = false; fireballs.splice(ci, 1); PSys.emit(o.mesh.position.x, 1, o.mesh.position.z, 18, 0xff6622, 3.5, .6, 4); PSys.emit(o.mesh.position.x, 1.5, o.mesh.position.z, 10, 0xffcc00, 2, .4, 3); Aud.play('explode'); const pts = 5 * st.comboMult; addScore(pts); addCombo(); showPop(pts, o.mesh); break; } }
+        // Hit Obs
+        for (let oi = obs.length - 1; oi >= 0; oi--) {
+            const o = obs[oi]; if (!o.mesh.visible) continue;
+            const dx = cb.mesh.position.x - o.mesh.position.x, dz = cb.mesh.position.z - o.mesh.position.z;
+            if (Math.sqrt(dx * dx + dz * dz) < 1.4) { o.mesh.visible = false; obs.splice(oi, 1); cb.mesh.visible = false; fireballs.splice(ci, 1); PSys.emit(o.mesh.position.x, 1, o.mesh.position.z, 18, 0xff6622, 3.5, .6, 4); Aud.play('explode'); const pts = 10 * st.comboMult; addScore(pts); addCombo(); showPop(pts, o.mesh); break; }
+        }
         if (!cb.mesh.visible) continue;
-        for (let ei = enemies.length - 1; ei >= 0; ei--) { const e = enemies[ei]; if (!e.mesh.visible) continue; const dx = cb.mesh.position.x - e.mesh.position.x, dz = cb.mesh.position.z - e.mesh.position.z; if (Math.sqrt(dx * dx + dz * dz) < 1.5) { e.hp--; cb.mesh.visible = false; fireballs.splice(ci, 1); PSys.emit(e.mesh.position.x, 1, e.mesh.position.z, 12, 0xffcc00, 2.5, .4, 3); if (e.hp <= 0) { e.mesh.visible = false; enemies.splice(ei, 1); PSys.emit(e.mesh.position.x, 1, e.mesh.position.z, 25, 0x66ff99, 4, .8, 5); PSys.emit(e.mesh.position.x, 2, e.mesh.position.z, 15, 0xff8844, 3, .6, 4); Aud.play('explode'); const pts = 50 * st.comboMult; addScore(pts); addCombo(); showPop(pts, e.mesh); } else { const pts = 10 * st.comboMult; addScore(pts); addCombo(); showPop(pts, e.mesh); } break; } }
+        // Hit Enemies
+        for (let ei = enemies.length - 1; ei >= 0; ei--) {
+            const e = enemies[ei]; if (!e.mesh.visible) continue;
+            const dx = cb.mesh.position.x - e.mesh.position.x, dz = cb.mesh.position.z - e.mesh.position.z;
+            if (Math.sqrt(dx * dx + dz * dz) < 1.5) {
+                e.hp--; cb.mesh.visible = false; fireballs.splice(ci, 1); PSys.emit(e.mesh.position.x, 1, e.mesh.position.z, 12, 0xffcc00, 2.5, .4, 3);
+                if (e.hp <= 0) { e.mesh.visible = false; enemies.splice(ei, 1); PSys.emit(e.mesh.position.x, 1, e.mesh.position.z, 25, 0x66ff99, 4, .8, 5); Aud.play('explode'); const pts = 50 * st.comboMult; addScore(pts); addCombo(); showPop(pts, e.mesh); }
+                else { const pts = 15 * st.comboMult; addScore(pts); addCombo(); showPop(pts, e.mesh); }
+                break;
+            }
+        }
+        if (!cb.mesh.visible) continue;
+        // Hit Bosses
+        for (let bi = bosses.length - 1; bi >= 0; bi--) {
+            const b = bosses[bi]; if (!b.mesh.visible) continue;
+            const dx = cb.mesh.position.x - b.mesh.position.x, dz = cb.mesh.position.z - b.mesh.position.z;
+            if (Math.sqrt(dx * dx + dz * dz) < b.r) {
+                b.hp--; cb.mesh.visible = false; fireballs.splice(ci, 1); shake(0.3, 0.2);
+                PSys.emit(cb.mesh.position.x, cb.mesh.position.y, cb.mesh.position.z, 10, 0xffaa00, 2, .4, 3);
+                if (b.hp <= 0) {
+                    b.mesh.visible = false; bosses.splice(bi, 1); st.bossActive = false; st.bossesKilled++; st.nextBossDist = st.distance + BOSS_DIST_INTERVAL;
+                    PSys.emit(b.mesh.position.x, 2, b.mesh.position.z, 60, 0xff4400, 8, 1.2, 8); Aud.play('explode'); Aud.play('milestone');
+                    const pts = 500 * st.comboMult; addScore(pts); showPop(pts, b.mesh);
+                    if (bossBarWrap) bossBarWrap.classList.remove('visible');
+                    spawnPowerup(); // Boss always drops power-up
+                } else {
+                    const pts = 20 * st.comboMult; addScore(pts); showPop(pts, b.mesh);
+                    if (bossBarFill) bossBarFill.style.transform = `scaleX(${b.hp / b.maxHp})`;
+                }
+                break;
+            }
+        }
     }
 }
 
@@ -385,6 +560,59 @@ function levelUp() {
     }
 }
 function showPop(pts, ref) { const p = document.createElement('div'); p.className = 'score-pop'; p.textContent = `+${pts}`; const r = canvas.getBoundingClientRect(); const v = new THREE.Vector3(ref.position.x, 2, ref.position.z); v.project(cam); p.style.left = `${(v.x * .5 + .5) * r.width}px`; p.style.top = `${(-v.y * .5 + .5) * r.height}px`; if (st.comboMult > 1) p.style.color = '#ffcc33'; popLayer.appendChild(p); setTimeout(() => p.remove(), 700); }
+
+/* ═══ POWER-UPS ═══ */
+function applyPowerup(type) {
+    st.pwType = type;
+    st.pwTimer = PW_DURATIONS[type];
+    st.pwMaxTimer = st.pwTimer;
+
+    // Revert old if any
+    st.rapidActive = (type === PW_RAPID);
+    st.shieldActive = (type === PW_SHIELD);
+    st.magnetActive = (type === PW_MAGNET);
+    st.tgtShipScale = (type === PW_GIANT) ? 1.8 : 1.0;
+    if (type === PW_GIANT) { st.hp = Math.min(st.hp + 2, MAX_HP + 2); updateHUD(); }
+
+    pwName.textContent = PW_NAMES[type];
+    pwIndicator.style.borderColor = `var(--accent)`;
+    pwIndicator.classList.add('visible');
+    Aud.play('levelup');
+    stageToast.textContent = `⭐ ${PW_NAMES[type]}!`;
+    stageToast.classList.remove('show'); void stageToast.offsetWidth; stageToast.classList.add('show');
+}
+
+function updatePowerups(dt) {
+    if (st.pwType === -1) return;
+    st.pwTimer -= dt;
+    if (pwTimerBar) pwTimerBar.style.transform = `scaleX(${st.pwTimer / st.pwMaxTimer})`;
+
+    if (st.pwTimer <= 0) {
+        // Deactivate
+        if (st.pwType === PW_GIANT) st.tgtShipScale = 1.0;
+        st.rapidActive = false; st.shieldActive = false; st.magnetActive = false;
+        st.pwType = -1;
+        if (pwIndicator) pwIndicator.classList.remove('visible');
+    }
+}
+
+/* ═══ BOSSES ═══ */
+function updateBosses(dt) {
+    for (let i = bosses.length - 1; i >= 0; i--) {
+        const b = bosses[i];
+        b.moveT += dt;
+        // Boss moves side to side across lanes
+        const targetX = Math.sin(b.moveT * 0.8) * (LANE_W * 1.5);
+        b.mesh.position.x += (targetX - b.mesh.position.x) * 2 * dt;
+
+        // Slight bobbing
+        b.mesh.position.y = 0.2 + Math.sin(b.moveT * 2) * 0.1;
+
+        // Health bar update should be done in checkCol hits, 
+        // but let's ensure it's visible if boss is active
+        if (bossBarWrap) bossBarWrap.classList.add('visible');
+    }
+}
 
 /* ═══ DISTANCE ═══ */
 function updateDistance(dt) {
@@ -427,19 +655,18 @@ function animWater(t) {
 /* ═══ SHIP ═══ */
 function updateShip(dt) {
     if (!shipGrp || !shipOk) return;
-    st.accelT = Math.min(st.accelT + dt, 1.0); // Reach top speed in 1 second instead of 2
+    st.accelT = Math.min(st.accelT + dt, 1.0);
     const accelFactor = Math.min(st.accelT, 1);
 
-    // Smooth velocity logic
     st.scrollSpeed += (st.tgtSpeed * accelFactor - st.scrollSpeed) * 4 * dt;
-
     const tgtX = LANES[st.tgtLane];
     const dx = tgtX - st.shipX;
+    st.shipX += dx * 16 * dt;
 
-    // Buttery smooth ship steering (spring lerp)
-    st.shipX += dx * 16 * dt; // constant ease-out
+    // Smooth scaling for Giant Ship
+    st.shipScale += (st.tgtShipScale - st.shipScale) * 3 * dt;
+    shipGrp.scale.set(st.shipScale, st.shipScale, st.shipScale);
 
-    // Smooth tilt
     const tilt = THREE.MathUtils.clamp(-dx * .45, -.45, .45);
     st.shipTilt += (tilt - st.shipTilt) * 12 * dt;
 
@@ -454,11 +681,17 @@ function updateShip(dt) {
     shipLight.position.set(st.shipX, 3, 2);
     if (st.invT > 0) { st.invT -= dt; shipGrp.visible = Math.floor(st.invT * 10) % 2 === 0; } else shipGrp.visible = true;
 
+    // Special effects for power-ups
+    if (st.shieldActive) {
+        if (st.elapsed % 0.4 < dt) PSys.emit(st.shipX + (Math.random() - .5) * 2, 1, (Math.random() - .5) * 2, 1, 0x4488ff, 1.5, .3, 1.0);
+    }
+
     const spdF = st.scrollSpeed / 16;
-    if (Math.abs(dx) > .2) PSys.emit(st.shipX, .15, .8, 2, 0x88ccff, 1.2, .35, 1.8);
+    const pSize = st.shipScale;
+    if (Math.abs(dx) > .2) PSys.emit(st.shipX, .15, .8, Math.floor(2 * pSize), 0x88ccff, 1.2 * pSize, .35, 1.8);
     if (st.elapsed % .06 < dt) {
-        PSys.emit(st.shipX + (Math.random() - .5) * .5, .05, 1.5, 1, 0xaaddff, .5, .5, .6);
-        if (spdF > .8) PSys.emit(st.shipX + (Math.random() - .5) * .8, .02, 1.8, 1, 0xbbddff, .8, .4, .8);
+        PSys.emit(st.shipX + (Math.random() - .5) * .5 * pSize, .05, 1.5, 1, 0xaaddff, .5 * pSize, .5, .6);
+        if (spdF > .8) PSys.emit(st.shipX + (Math.random() - .5) * .8 * pSize, .02, 1.8, 1, 0xbbddff, .8 * pSize, .4, .8);
     }
     if (st.cannonFlashT > 0) { st.cannonFlashT -= dt; cannonFlash.intensity = st.cannonFlashT / .15 * 2; if (st.cannonFlashT <= 0) cannonFlash.intensity = 0; }
 }
@@ -469,20 +702,56 @@ function updateWorld(dt) {
     for (let i = obs.length - 1; i >= 0; i--) { const o = obs[i]; o.mesh.position.z += sd; if (o.mesh.position.z > DESPAWN_Z) { o.mesh.visible = false; obs.splice(i, 1); addScore(1); } }
     for (let i = tres.length - 1; i >= 0; i--) { const t = tres[i]; t.mesh.position.z += sd; t.mesh.rotation.y += dt * 2; if (t.mesh.position.z > DESPAWN_Z) { t.mesh.visible = false; tres.splice(i, 1); } }
     for (let i = enemies.length - 1; i >= 0; i--) { const e = enemies[i]; e.mesh.position.z += sd * .7; if (e.mesh.position.z > DESPAWN_Z) { e.mesh.visible = false; enemies.splice(i, 1); } }
+
+    // Add Power-ups movement
+    for (let i = powerups.length - 1; i >= 0; i--) {
+        const p = powerups[i]; p.mesh.position.z += sd; p.mesh.rotation.y += dt * 3;
+        p.mesh.position.y = 0.8 + Math.sin(st.elapsed * 4 + p.bobOff) * 0.2;
+        if (p.mesh.position.z > DESPAWN_Z) { p.mesh.visible = false; powerups.splice(i, 1); }
+    }
+    // Add Bosses movement
+    for (let i = bosses.length - 1; i >= 0; i--) {
+        const b = bosses[i]; b.mesh.position.z += sd * 0.3; // Bosses move slower towards player
+        if (b.mesh.position.z > DESPAWN_Z) { b.mesh.visible = false; bosses.splice(i, 1); st.bossActive = false; if (bossBarWrap) bossBarWrap.classList.remove('visible'); }
+    }
+
     for (let i = fireballs.length - 1; i >= 0; i--) { const c = fireballs[i]; c.life -= dt; c.mesh.position.z -= c.speed * dt; c.mesh.rotation.x += dt * 8; if (c.life <= 0 || c.mesh.position.z < -SPAWN_DIST - 5) { c.mesh.visible = false; fireballs.splice(i, 1); } }
     for (let i = islands.length - 1; i >= 0; i--) { const il = islands[i]; il.group.position.z += sd; if (il.group.position.z > DESPAWN_Z + 10) { il.group.visible = false; islands.splice(i, 1); } }
     for (const bg of bgIslands) { bg.position.z += sd * .12; if (bg.position.z > 40) bg.position.z -= 360; }
-    st.spawnT -= dt; if (st.spawnT <= 0) { st.spawnT = st.spawnI * (.6 + Math.random() * .7); spawnObs(); if (Math.random() < .5) spawnTre(); if (st.level >= 3 && Math.random() < Math.min(.2, (st.level - 2) * .05)) spawnEnemy(); }
+
+    st.spawnT -= dt;
+    if (st.spawnT <= 0 && !st.bossActive) {
+        st.spawnT = st.spawnI * (.6 + Math.random() * .7);
+        spawnObs();
+        if (Math.random() < .5) spawnTre();
+        if (Math.random() < .08) spawnPowerup(); // Random power-up spawn
+        if (st.level >= 3 && Math.random() < Math.min(.2, (st.level - 2) * .05)) spawnEnemy();
+    }
+
+    // Boss Spawning
+    if (!st.bossActive && st.distance >= st.nextBossDist) { spawnBoss(); }
+
     st.islandT -= dt; if (st.islandT <= 0) { st.islandT = st.islandI * (.8 + Math.random() * .5); spawnIsland(); }
     if (st.shootCD > 0) st.shootCD -= dt;
     updateCooldownUI();
     updateStage(dt);
     updateWeather(dt);
+    updatePowerups(dt);
+    if (st.bossActive) updateBosses(dt);
 }
 
 /* ═══ GAME FLOW ═══ */
 function startGame() {
-    Aud.init(); Object.assign(st, { running: true, paused: false, score: 0, dScore: 0, hp: MAX_HP, level: 1, lvlProg: 0, lane: 1, tgtLane: 1, shipX: 0, shipTilt: 0, bob: 0, scrollSpeed: 0, tgtSpeed: STAGES[0].speedBase, accelT: 0, spawnT: 1.5, spawnI: 1.0, invT: 0, shootCD: 0, elapsed: 0, distance: 0, dDist: 0, nextMilestone: 0, islandT: 2, islandI: 3.0, combo: 0, comboMult: 1, cannonFlashT: 0, stageIdx: 0, stageTransT: 0 });
+    Aud.init();
+    Object.assign(st, {
+        running: true, paused: false, score: 0, dScore: 0, hp: MAX_HP, level: 1, lvlProg: 0,
+        lane: CENTER_LANE, tgtLane: CENTER_LANE, shipX: LANES[CENTER_LANE], shipTilt: 0, bob: 0,
+        scrollSpeed: 0, tgtSpeed: STAGES[0].speedBase, accelT: 0, spawnT: 1.5, spawnI: 1.0,
+        invT: 0, shootCD: 0, elapsed: 0, distance: 0, dDist: 0, nextMilestone: 0,
+        islandT: 2, islandI: 3.0, combo: 0, comboMult: 1, cannonFlashT: 0, stageIdx: 0, stageTransT: 0,
+        pwType: -1, pwTimer: 0, shieldActive: false, magnetActive: false, rapidActive: false,
+        shipScale: 1, tgtShipScale: 1, bossActive: false, nextBossDist: BOSS_DIST_INTERVAL, bossesKilled: 0
+    });
 
     st.curClear.set(STAGES[0].clear); st.curFog.set(STAGES[0].fog); st.curFogDens = STAGES[0].fogDens; st.curSun = STAGES[0].sun; st.curHemi = STAGES[0].hemi;
     scene.background = st.curClear; scene.fog.color = st.curFog; scene.fog.density = st.curFogDens; sun.intensity = st.curSun; hemi.intensity = st.curHemi;
@@ -490,29 +759,32 @@ function startGame() {
 
     resetPools(); Object.values(CP).forEach(p => p.forEach(m => { if (m.visible !== undefined) m.visible = false; })); PSys.clear(); camSt.shakeI = 0; cam.position.copy(CAM_BASE); cam.fov = 52;
     lossSfx.pause(); lossSfx.currentTime = 0; resetCombo();
-    overlay.classList.remove('show'); pauseOverlay.classList.remove('show'); scoreEl.textContent = '0'; distEl.textContent = '0m'; updateHUD(); Aud.startAmb();
+    overlay.classList.remove('show'); pauseOverlay.classList.remove('show'); scoreEl.textContent = '0'; distEl.textContent = '0m'; updateHUD();
+    Aud.startAmb(); Aud.startMusic();
     cooldownRing.classList.add('ready'); cooldownArc.classList.add('ready');
+    if (bossBarWrap) bossBarWrap.classList.remove('visible');
+    if (pwIndicator) pwIndicator.classList.remove('visible');
     stageToast.textContent = STAGES[0].name; stageToast.classList.add('show');
 }
 
 function gameOver() {
     st.running = false; if (st.score > st.best) { st.best = st.score; localStorage.setItem('pirateBest', String(st.best)); }
     const dist = Math.floor(st.distance); if (dist > st.bestDist) { st.bestDist = dist; localStorage.setItem('pirateDist', String(dist)); }
-    Aud.stopAmb(); oTitle.textContent = '💀 Ship Destroyed!'; oText.textContent = 'The cursed sea claims another ship.';
+    Aud.stopAmb(); Aud.stopMusic(); oTitle.textContent = '💀 Ship Destroyed!'; oText.textContent = 'The cursed sea claims another ship.';
     playLossSfx();
-    finalScore.innerHTML = `<div style="font-size:.85em;color:#bfe5f7;margin-bottom:4px">Final Score</div><div style="font-size:1.6em">${st.score}</div><div style="font-size:.78em;color:#5edba8;margin:4px 0">${dist}m sailed</div><div style="font-size:.75em;color:#89dcff">Best: ${st.best} · ${st.bestDist}m · Level ${st.level} - Stage ${st.stageIdx + 1}</div>${st.combo > 2 ? `<div style="font-size:.7em;color:#f2ca7a;margin-top:4px">Max combo: x${st.comboMult}</div>` : ''}`;
+    finalScore.innerHTML = `<div style="font-size:.85em;color:#6a5540;margin-bottom:4px">Final Score</div><div style="font-size:1.6em;color:#3a2610">${st.score}</div><div style="font-size:.78em;color:#2a7a5a;margin:4px 0">${dist}m sailed</div><div style="font-size:.75em;color:#5a4430">Best: ${st.best} · ${st.bestDist}m · Level ${st.level} - Stage ${st.stageIdx + 1}</div>${st.combo > 2 ? `<div style="font-size:.7em;color:#8b5a2b;margin-top:4px">Max combo: x${st.comboMult}</div>` : ''}`;
     startBtn.textContent = '⚓ Set Sail Again'; overlay.classList.add('show');
     cooldownRing.classList.remove('active', 'ready'); comboBadge.classList.remove('visible');
 }
 
-function togglePause() { if (!st.running) return; st.paused = !st.paused; if (st.paused) pauseOverlay.classList.add('show'); else pauseOverlay.classList.remove('show'); }
+function togglePause() { if (!st.running) return; st.paused = !st.paused; if (st.paused) { pauseOverlay.classList.add('show'); Aud.stopMusic(); } else { pauseOverlay.classList.remove('show'); Aud.startMusic(); } }
 
 /* ═══ INPUT ═══ */
 window.addEventListener('keydown', e => {
     if (e.code === 'Escape') { e.preventDefault(); togglePause(); return; }
     if (st.paused || !st.running) return;
     if (e.code === 'ArrowLeft' || e.code === 'KeyA') { if (st.tgtLane > 0) st.tgtLane--; }
-    if (e.code === 'ArrowRight' || e.code === 'KeyD') { if (st.tgtLane < 2) st.tgtLane++; }
+    if (e.code === 'ArrowRight' || e.code === 'KeyD') { if (st.tgtLane < 4) st.tgtLane++; }
     if (e.code === 'Space') { e.preventDefault(); shoot(); }
 });
 startBtn.addEventListener('click', () => { Aud.init(); if (mdlOk) startGame(); });
@@ -528,10 +800,10 @@ if (qualityBtn) qualityBtn.addEventListener('click', () => { qualityLevel = (qua
 // Touch
 let tSX = 0, tSY = 0;
 vpWrap.addEventListener('touchstart', e => { tSX = e.touches[0].clientX; tSY = e.touches[0].clientY; }, { passive: true });
-vpWrap.addEventListener('touchend', e => { if (!st.running || st.paused) return; const dx = e.changedTouches[0].clientX - tSX, dy = e.changedTouches[0].clientY - tSY; if (Math.abs(dx) > 30 && Math.abs(dx) > Math.abs(dy)) { if (dx < 0 && st.tgtLane > 0) st.tgtLane--; if (dx > 0 && st.tgtLane < 2) st.tgtLane++; } else if (Math.abs(dx) < 15 && Math.abs(dy) < 15) shoot(); }, { passive: true });
+vpWrap.addEventListener('touchend', e => { if (!st.running || st.paused) return; const dx = e.changedTouches[0].clientX - tSX, dy = e.changedTouches[0].clientY - tSY; if (Math.abs(dx) > 30 && Math.abs(dx) > Math.abs(dy)) { if (dx < 0 && st.tgtLane > 0) st.tgtLane--; if (dx > 0 && st.tgtLane < 4) st.tgtLane++; } else if (Math.abs(dx) < 15 && Math.abs(dy) < 15) shoot(); }, { passive: true });
 const tL = $('touchLeftBtn'), tR = $('touchRightBtn'), fB = $('fireBtn');
 function addTB(b, a) { if (!b) return; const h = e => { e.preventDefault(); if (st.running && !st.paused) a(); b.classList.add('active'); }; b.addEventListener('touchstart', h, { passive: false }); b.addEventListener('mousedown', h); const r2 = () => b.classList.remove('active'); b.addEventListener('touchend', r2, { passive: true }); b.addEventListener('mouseup', r2); b.addEventListener('mouseleave', r2); }
-addTB(tL, () => { if (st.tgtLane > 0) st.tgtLane--; }); addTB(tR, () => { if (st.tgtLane < 2) st.tgtLane++; }); addTB(fB, () => shoot());
+addTB(tL, () => { if (st.tgtLane > 0) st.tgtLane--; }); addTB(tR, () => { if (st.tgtLane < 4) st.tgtLane++; }); addTB(fB, () => shoot());
 
 /* ═══ RESIZE ═══ */
 function onResize() { const r = vpWrap.getBoundingClientRect(); R.setSize(r.width, r.height, false); cam.aspect = r.width / r.height; cam.updateProjectionMatrix(); }

@@ -24,7 +24,8 @@ const MIME_TYPES = {
   ".txt": "text/plain; charset=utf-8",
   ".glb": "model/gltf-binary",
   ".obj": "text/plain; charset=utf-8",
-  ".mtl": "text/plain; charset=utf-8"
+  ".mtl": "text/plain; charset=utf-8",
+  ".mp3": "audio/mpeg"
 };
 
 function safePath(urlPath) {
