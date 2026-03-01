@@ -68,15 +68,15 @@ const camSt = { offX: 0, sway: 0, shakeI: 0, shakeD: 0, cx: 0 };
 function updateCam(dt) {
     const tx = st.shipX * 0.4; camSt.offX += (tx - camSt.offX) * 4 * dt;
     camSt.cx += (camSt.offX - camSt.cx) * 6 * dt; // Buttery smooth lagging follow
-    
+
     camSt.sway += dt * 1.1;
     const sx = Math.sin(camSt.sway) * .1, sy = Math.cos(camSt.sway * .7) * .05;
     const spF = Math.min(st.scrollSpeed / 22, 1);
     const tFov = 52 + spF * 12; cam.fov += (tFov - cam.fov) * 2.5 * dt;
-    
+
     let shX = 0, shY = 0;
     if (camSt.shakeI > 0) { shX = (Math.random() - .5) * camSt.shakeI; shY = (Math.random() - .5) * camSt.shakeI * .5; camSt.shakeI -= camSt.shakeD * dt; if (camSt.shakeI < 0) camSt.shakeI = 0; }
-    
+
     cam.position.set(CAM_BASE.x + camSt.cx + sx + shX, CAM_BASE.y + sy + shY, CAM_BASE.z);
     cam.lookAt(camSt.cx * .5, 0, CAM_LOOK.z); cam.updateProjectionMatrix();
 }
@@ -100,7 +100,7 @@ const wOrig = wGeo.attributes.position.array.slice();
 const texLoader = new THREE.TextureLoader();
 const skyTex = texLoader.load('./sky_bg.jpg');
 skyTex.mapping = THREE.EquirectangularReflectionMapping;
-const skyMat = new THREE.MeshBasicMaterial({ 
+const skyMat = new THREE.MeshBasicMaterial({
     map: skyTex, side: THREE.BackSide, fog: true, opacity: 1.0, transparent: true
 });
 const skySphere = new THREE.Mesh(new THREE.SphereGeometry(200, 32, 24), skyMat);
@@ -114,9 +114,9 @@ function mkCloud(x, y, z) {
 }
 const nClouds = QP[qualityLevel].clouds;
 for (let i = 0; i < nClouds; i++) mkCloud((Math.random() - .5) * 250, 35 + Math.random() * 30, -80 - Math.random() * 250);
-function updateClouds(dt) { 
+function updateClouds(dt) {
     skySphere.rotation.y += dt * 0.005; // slowly rotate sky asset
-    for (const c of clouds) { c.position.x += c.userData.spd * dt; if (c.position.x > 140) c.position.x = -140; } 
+    for (const c of clouds) { c.position.x += c.userData.spd * dt; if (c.position.x > 140) c.position.x = -140; }
 }
 
 /* ═══ MODEL LOADER ═══ */
@@ -296,8 +296,7 @@ function updateStage(dt) {
         scene.fog.density = st.curFogDens;
         sun.intensity = st.curSun;
         hemi.intensity = st.curHemi;
-        skyMat.uniforms.cBot.value = st.curFog;
-        skyMat.uniforms.cSky.value = st.curClear;
+        skyMat.color.lerp(new THREE.Color(tg.fog), dt); // use fog color as basic tint
     }
 }
 function setStage(idx) {
@@ -415,14 +414,14 @@ function updateCooldownUI() {
 }
 
 /* ═══ WATER ═══ */
-function animWater(t) { 
-    const p = wGeo.attributes.position, a = p.array; 
-    for (let i = 0; i < a.length; i += 3) { 
-        const ox = wOrig[i], oy = wOrig[i + 1]; 
+function animWater(t) {
+    const p = wGeo.attributes.position, a = p.array;
+    for (let i = 0; i < a.length; i += 3) {
+        const ox = wOrig[i], oy = wOrig[i + 1];
         // Smoother, lower frequency wave swells
-        a[i + 2] = Math.sin(ox * .08 + t * 1.2) * .45 + Math.cos(oy * .06 + t * .6) * .35 + Math.sin((ox + oy) * .05 + t * .8) * .25; 
-    } 
-    p.needsUpdate = true; 
+        a[i + 2] = Math.sin(ox * .08 + t * 1.2) * .45 + Math.cos(oy * .06 + t * .6) * .35 + Math.sin((ox + oy) * .05 + t * .8) * .25;
+    }
+    p.needsUpdate = true;
 }
 
 /* ═══ SHIP ═══ */
@@ -430,36 +429,36 @@ function updateShip(dt) {
     if (!shipGrp || !shipOk) return;
     st.accelT = Math.min(st.accelT + dt, 1.0); // Reach top speed in 1 second instead of 2
     const accelFactor = Math.min(st.accelT, 1);
-    
+
     // Smooth velocity logic
     st.scrollSpeed += (st.tgtSpeed * accelFactor - st.scrollSpeed) * 4 * dt;
-    
+
     const tgtX = LANES[st.tgtLane];
     const dx = tgtX - st.shipX;
-    
+
     // Buttery smooth ship steering (spring lerp)
     st.shipX += dx * 16 * dt; // constant ease-out
-    
+
     // Smooth tilt
-    const tilt = THREE.MathUtils.clamp(-dx * .45, -.45, .45); 
+    const tilt = THREE.MathUtils.clamp(-dx * .45, -.45, .45);
     st.shipTilt += (tilt - st.shipTilt) * 12 * dt;
-    
-    st.bob += dt * 2.8; 
+
+    st.bob += dt * 2.8;
     const bob = Math.sin(st.bob) * .1 + Math.cos(st.bob * 1.7) * .05;
-    
-    shipGrp.position.x = st.shipX; 
-    shipGrp.position.y = SHIP_Y + bob; 
-    shipGrp.rotation.z = st.shipTilt; 
+
+    shipGrp.position.x = st.shipX;
+    shipGrp.position.y = SHIP_Y + bob;
+    shipGrp.rotation.z = st.shipTilt;
     shipGrp.rotation.x = Math.sin(st.bob * .8) * .03 + st.shipTilt * .15;
-    
+
     shipLight.position.set(st.shipX, 3, 2);
     if (st.invT > 0) { st.invT -= dt; shipGrp.visible = Math.floor(st.invT * 10) % 2 === 0; } else shipGrp.visible = true;
-    
+
     const spdF = st.scrollSpeed / 16;
     if (Math.abs(dx) > .2) PSys.emit(st.shipX, .15, .8, 2, 0x88ccff, 1.2, .35, 1.8);
-    if (st.elapsed % .06 < dt) { 
-        PSys.emit(st.shipX + (Math.random() - .5) * .5, .05, 1.5, 1, 0xaaddff, .5, .5, .6); 
-        if (spdF > .8) PSys.emit(st.shipX + (Math.random() - .5) * .8, .02, 1.8, 1, 0xbbddff, .8, .4, .8); 
+    if (st.elapsed % .06 < dt) {
+        PSys.emit(st.shipX + (Math.random() - .5) * .5, .05, 1.5, 1, 0xaaddff, .5, .5, .6);
+        if (spdF > .8) PSys.emit(st.shipX + (Math.random() - .5) * .8, .02, 1.8, 1, 0xbbddff, .8, .4, .8);
     }
     if (st.cannonFlashT > 0) { st.cannonFlashT -= dt; cannonFlash.intensity = st.cannonFlashT / .15 * 2; if (st.cannonFlashT <= 0) cannonFlash.intensity = 0; }
 }
@@ -487,7 +486,7 @@ function startGame() {
 
     st.curClear.set(STAGES[0].clear); st.curFog.set(STAGES[0].fog); st.curFogDens = STAGES[0].fogDens; st.curSun = STAGES[0].sun; st.curHemi = STAGES[0].hemi;
     scene.background = st.curClear; scene.fog.color = st.curFog; scene.fog.density = st.curFogDens; sun.intensity = st.curSun; hemi.intensity = st.curHemi;
-    skyMat.uniforms.cBot.value = st.curFog; skyMat.uniforms.cSky.value = st.curClear;
+    skyMat.color.set(STAGES[0].fog);
 
     resetPools(); Object.values(CP).forEach(p => p.forEach(m => { if (m.visible !== undefined) m.visible = false; })); PSys.clear(); camSt.shakeI = 0; cam.position.copy(CAM_BASE); cam.fov = 52;
     lossSfx.pause(); lossSfx.currentTime = 0; resetCombo();
@@ -541,7 +540,7 @@ window.addEventListener('resize', onResize); setTimeout(onResize, 60);
 /* ═══ LOOP ═══ */
 let lt = 0;
 function loop(time) {
-    requestAnimationFrame(loop); const t = time * .001, dt = Math.min(t - lt, .05); lt = t; skyMat.uniforms.uTime.value = t;
+    requestAnimationFrame(loop); const t = time * .001, dt = Math.min(t - lt, .05); lt = t;
     if (st.running && mdlOk && !st.paused) {
         st.elapsed += dt; updateShip(dt); updateWorld(dt); checkCol(); animScore(dt); updateDistance(dt); updateCam(dt);
         if (st.scrollSpeed > 14 && Math.random() < .005) Aud.play('wind');
